@@ -4,7 +4,7 @@
 
 macOS Quick Look support for `.gpx` files:
 
-- **Press Space on a GPX file in Finder** → the track drawn on a Thunderforest Outdoors base map ("Outdoor" layer), titled with the start location + date, plus a stats bar: distance (km), D+ (cumulative ascent), altitude range, duration (when the file has timestamps), and point count. An elevation profile (altitude vs. distance) is drawn under the map when the file carries elevation data; hovering it shows a crosshair with distance/altitude and marks the spot on the map.
+- **Press Space on a GPX file in Finder** → the track drawn on an OpenStreetMap base map, titled with the date, plus a stats bar: distance (km), D+ (cumulative ascent), altitude range, duration (when the file has timestamps), and point count. An elevation profile (altitude vs. distance) is drawn under the map when the file carries elevation data; hovering it shows a crosshair with distance/altitude and marks the spot on the map.
 
 - **Finder thumbnails** → the track outline drawn as the file's icon.
 
@@ -71,14 +71,10 @@ sandbox profile, which **denies all networking** regardless of the
 
 - Apple's own map tiles can never load (GeoServices is blocked), so the map
   uses an `MKTileOverlay` with `canReplaceMapContent` fetching web tiles directly.
-  Thunderforest Outdoors @2x is used because openstreetmap.org serves only
-  256px tiles, which are blurry at readable label size on Retina (`tileSize`
-  512 cancels MapKit's Retina zoom offset).
+  The tiles come from tile.openstreetmap.org (256px, so less sharp on Retina).
 - The network access needed for those tile fetches is granted through
   `com.apple.security.temporary-exception.sbpl` entitlements
   (`(allow network-outbound)`), which the profile explicitly honors.
-- The title's location comes from OSM Nominatim reverse geocoding (zoom 16);
-  Apple's `CLGeocoder` needs geod, which the sandbox blocks.
 
 The thumbnail extension needs no network — it draws the track vector directly.
 

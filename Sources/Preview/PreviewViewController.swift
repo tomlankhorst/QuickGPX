@@ -5,8 +5,7 @@ import MapKit
 /// Tags the white outline drawn underneath the colored track line.
 private final class CasingPolyline: MKPolyline {}
 
-/// Thunderforest Outdoors base map — the same "Outdoor" layer (and public API
-/// key) as seriot.ch/gpx_editor. Replaces Apple's base map, whose tiles
+/// OpenStreetMap standard base map. Replaces Apple's base map, whose tiles
 /// GeoServices cannot load under the Quick Look sandbox; these are fetched
 /// with a plain URLSession instead.
 private final class BaseTileOverlay: MKTileOverlay {
@@ -17,16 +16,11 @@ private final class BaseTileOverlay: MKTileOverlay {
     }()
 
     init() {
-        // Thunderforest renders true 512px Retina tiles; openstreetmap.org
-        // serves only 256px tiles, which are inevitably blurry when upscaled
-        // to readable label size on Retina displays.
-        super.init(urlTemplate: "https://tile.thunderforest.com/outdoors/{z}/{x}/{y}@2x.png?apikey=6170aad10dfd42a38d4d8c709a536f38")
+        super.init(urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
         canReplaceMapContent = true
         minimumZ = 1
-        maximumZ = 20
-        // 512 pt tiles cancel MapKit's Retina zoom offset, so the @2x tiles
-        // render at native pixels: crisp labels at full size.
-        tileSize = CGSize(width: 512, height: 512)
+        maximumZ = 19
+        tileSize = CGSize(width: 256, height: 256)
     }
 
     override func loadTile(at path: MKTileOverlayPath, result: @escaping (Data?, Error?) -> Void) {
@@ -57,7 +51,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
     private let statsBar = NSVisualEffectView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let statsLabel = NSTextField(labelWithString: "")
-    private let attributionLabel = NSTextField(labelWithString: "© Thunderforest · © OpenStreetMap contributors")
+    private let attributionLabel = NSTextField(labelWithString: "© OpenStreetMap contributors")
     private let profileBar = NSVisualEffectView()
     private let profileView = ElevationProfileView()
     private var profileHeight: NSLayoutConstraint!
@@ -192,12 +186,6 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
             dateText = formatter.string(from: date)
         }
         titleLabel.stringValue = dateText ?? gpx.name ?? fileName
-        if let coordinate = gpx.startCoordinate {
-            reverseGeocode(coordinate) { [weak self] place in
-                guard let self, let place else { return }
-                self.titleLabel.stringValue = [place, dateText].compactMap { $0 }.joined(separator: " · ")
-            }
-        }
 
         for segment in gpx.segments where segment.count > 1 {
             let coordinates = segment.map { $0.coordinate }
@@ -264,32 +252,6 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         }
 
         statsLabel.stringValue = statsText(for: gpx)
-    }
-
-    /// Locality name for the track's start point, via OSM Nominatim (Apple's
-    /// CLGeocoder needs geod, which the Quick Look sandbox blocks).
-    private func reverseGeocode(_ coordinate: CLLocationCoordinate2D,
-                                completion: @escaping (String?) -> Void) {
-        var components = URLComponents(string: "https://nominatim.openstreetmap.org/reverse")!
-        components.queryItems = [
-            URLQueryItem(name: "lat", value: String(coordinate.latitude)),
-            URLQueryItem(name: "lon", value: String(coordinate.longitude)),
-            URLQueryItem(name: "format", value: "jsonv2"),
-            URLQueryItem(name: "zoom", value: "16"),
-        ]
-        var request = URLRequest(url: components.url!)
-        request.setValue("QuickGPX/0.1 (macOS Quick Look extension)", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            var place: String?
-            if let data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let address = json["address"] as? [String: Any] {
-                for key in ["village", "hamlet", "town", "city", "municipality", "county"] {
-                    if let value = address[key] as? String { place = value; break }
-                }
-            }
-            DispatchQueue.main.async { completion(place) }
-        }.resume()
     }
 
     private func statsText(for gpx: GPXDocument) -> String {
