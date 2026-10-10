@@ -14,6 +14,15 @@ extension** (`QLPreviewingController` + MapKit) and a **thumbnail extension**
 (`QLThumbnailProvider`). No Xcode project — everything is compiled with `swiftc`
 and assembled by the build script.
 
+## Changes in this fork
+
+This fork of [nst/QuickGPX](https://github.com/nst/QuickGPX) changes how the preview uses the network:
+
+- The base map uses OpenStreetMap tiles from `tile.openstreetmap.org`. The upstream version uses Thunderforest Outdoors tiles with the API key of the upstream author.
+- The preview does not send the start point of a track to OSM Nominatim. The title shows the date, the track name, or the file name.
+
+The OSM tiles are 256 px, so the map is less sharp on Retina displays.
+
 ## Build & install
 
 ```sh
