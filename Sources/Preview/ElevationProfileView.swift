@@ -15,6 +15,11 @@ final class ElevationProfileView: NSView {
     /// Called with the hovered point, or nil when the cursor leaves the chart.
     var onHover: ((GPXDocument.ProfilePoint?) -> Void)?
 
+    /// Waypoints on the track, drawn as small dots on the curve.
+    var markers: [GPXDocument.ProfileMarker] = [] {
+        didSet { needsDisplay = true }
+    }
+
     private var hoverIndex: Int? {
         didSet { if hoverIndex != oldValue { needsDisplay = true } }
     }
@@ -127,6 +132,37 @@ final class ElevationProfileView: NSView {
         NSColor.trackOrange.setStroke()
         line.stroke()
 
+        // Waypoints: a faint dotted line down to the axis and a small dot on the curve.
+        func elevation(at distance: Double) -> Double {
+            var lo = 0, hi = profile.count - 1
+            while hi - lo > 1 {
+                let mid = (lo + hi) / 2
+                if profile[mid].distance < distance { lo = mid } else { hi = mid }
+            }
+            let span = profile[hi].distance - profile[lo].distance
+            let t = span > 0 ? max(0, min(1, (distance - profile[lo].distance) / span)) : 0
+            return profile[lo].elevation + t * (profile[hi].elevation - profile[lo].elevation)
+        }
+        let markerPositions = markers.map { marker -> NSPoint in
+            point(GPXDocument.ProfilePoint(distance: marker.distance,
+                                           elevation: elevation(at: marker.distance),
+                                           coordinate: .init()))
+        }
+        for pos in markerPositions {
+            let stem = NSBezierPath()
+            stem.move(to: NSPoint(x: pos.x, y: chart.minY))
+            stem.line(to: pos)
+            stem.lineWidth = 0.75
+            stem.setLineDash([2, 2], count: 2, phase: 0)
+            NSColor.systemIndigo.withAlphaComponent(0.45).setStroke()
+            stem.stroke()
+            let dot = NSRect(x: pos.x - 2.5, y: pos.y - 2.5, width: 5, height: 5)
+            NSColor.white.setFill()
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.25, dy: -1.25)).fill()
+            NSColor.systemIndigo.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+        }
+
         // Min / max altitude labels.
         NSAttributedString(string: String(format: "%.0f m", maxEle), attributes: labelAttributes)
             .draw(at: NSPoint(x: chart.minX + 2, y: chart.maxY - 12))
@@ -154,8 +190,10 @@ final class ElevationProfileView: NSView {
             let distanceText = p.distance >= 1000
                 ? String(format: "%.1f km", p.distance / 1000)
                 : String(format: "%.0f m", p.distance)
+            let nearMarker = zip(markers, markerPositions).first { abs($0.1.x - pos.x) <= 6 }?.0
             let tooltip = NSAttributedString(
-                string: "\(distanceText) · \(String(format: "%.0f m", p.elevation))",
+                string: (nearMarker.map { "\($0.name) · " } ?? "")
+                    + "\(distanceText) · \(String(format: "%.0f m", p.elevation))",
                 attributes: [
                     .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
                     .foregroundColor: NSColor.labelColor,

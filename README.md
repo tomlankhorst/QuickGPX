@@ -23,6 +23,12 @@ This fork of [nst/QuickGPX](https://github.com/nst/QuickGPX) changes how the pre
 
 The OSM tiles are 256 px, so the map is less sharp on Retina displays.
 
+The fork also adds these map features:
+
+- Waypoints show as dots with their names. Start and end show as a green and a red dot. MapKit marker pins do not draw in the Quick Look sandbox (their frame stays 0×0), so the preview draws its own markers.
+- The elevation profile shows each waypoint near the track as a small dot on the curve. Hover near the dot to see the name of the waypoint.
+- Six chevrons on the track show the direction of travel. Each chevron goes on the straightest part of the track near its position, so that a bend does not turn it.
+
 ## Build & install
 
 ```sh

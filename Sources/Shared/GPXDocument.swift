@@ -116,6 +116,29 @@ final class GPXDocument: NSObject {
         return result
     }()
 
+    struct ProfileMarker {
+        var distance: Double
+        var name: String
+    }
+
+    /// Named waypoints placed at their distance along the track (the nearest
+    /// profile point). Waypoints farther than `maxOffset` meters from the track
+    /// are left out.
+    func profileMarkers(maxOffset: Double = 300) -> [ProfileMarker] {
+        let profile = elevationProfile
+        guard !profile.isEmpty else { return [] }
+        return waypoints.compactMap { waypoint in
+            guard let name = waypoint.name, !name.isEmpty else { return nil }
+            var best = profile[0]
+            var bestOffset = Double.greatestFiniteMagnitude
+            for point in profile {
+                let offset = GPXDocument.haversine(point.coordinate, waypoint.coordinate)
+                if offset < bestOffset { bestOffset = offset; best = point }
+            }
+            return bestOffset <= maxOffset ? ProfileMarker(distance: best.distance, name: name) : nil
+        }
+    }
+
     var elevationRange: (min: Double, max: Double)? {
         let elevations = elevationProfile.map(\.elevation)
         guard let lo = elevations.min(), let hi = elevations.max() else { return nil }

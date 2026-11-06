@@ -44,6 +44,99 @@ private final class EndpointAnnotation: MKPointAnnotation {
 /// Marks the position hovered in the elevation profile.
 private final class HoverDotAnnotation: MKPointAnnotation {}
 
+/// The track line with a few chevrons that show the direction of travel:
+/// `count` of them, spread along the track, at any zoom level. Each chevron
+/// sits on the straightest stretch near its even spot, so none lands in a bend.
+private final class DirectionalPolylineRenderer: MKPolylineRenderer {
+    private let count = 6               // chevrons along the whole track
+    private let size: CGFloat = 9       // half the chevron length, screen points
+
+    /// Cumulative distance (map points) at each polyline point; built once.
+    private lazy var cumulative: [Double] = {
+        let points = polyline.points()
+        var result = [0.0]
+        result.reserveCapacity(polyline.pointCount)
+        for i in 1..<max(polyline.pointCount, 1) {
+            result.append(result[i - 1] + hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y))
+        }
+        return result
+    }()
+
+    /// The point at distance `d` along the track.
+    private func location(at d: Double) -> MKMapPoint {
+        let points = polyline.points(), cum = cumulative
+        let d = max(0, min(cum[cum.count - 1], d))
+        var lo = 0, hi = cum.count - 1
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2
+            if cum[mid] < d { lo = mid } else { hi = mid }
+        }
+        let span = cum[hi] - cum[lo]
+        let t = span > 0 ? (d - cum[lo]) / span : 0
+        return MKMapPoint(x: points[lo].x + (points[hi].x - points[lo].x) * t,
+                          y: points[lo].y + (points[hi].y - points[lo].y) * t)
+    }
+
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+        super.draw(mapRect, zoomScale: zoomScale, in: context)
+        guard polyline.pointCount > 1, let total = cumulative.last, total > 0 else { return }
+        let half = Double(size / zoomScale)
+        let reach = 2.5 * half                      // track length used for the direction
+        let visible = mapRect.insetBy(dx: -4 * half, dy: -4 * half)
+        let gap = total / Double(count + 1)
+        let chevrons = CGMutablePath()
+
+        for k in 1...count {
+            // Search ±35 % of the gap around the even spot for the straightest place.
+            let target = gap * Double(k)
+            let window = 0.35 * gap
+            let step = max(reach / 2, 2 * window / 300)
+            var best: (score: Double, d: Double)?
+            var d = max(reach, target - window)
+            while d <= min(total - reach, target + window) {
+                let a = location(at: d - reach), m = location(at: d), b = location(at: d + reach)
+                let v1 = (x: m.x - a.x, y: m.y - a.y), v2 = (x: b.x - m.x, y: b.y - m.y)
+                let n1 = hypot(v1.x, v1.y), n2 = hypot(v2.x, v2.y)
+                if n1 > 0, n2 > 0 {
+                    let cosine = (v1.x * v2.x + v1.y * v2.y) / (n1 * n2)
+                    // Straightness first, closeness to the even spot as a tie-breaker.
+                    let score = (1 - cosine) + 0.02 * abs(d - target) / window
+                    if best == nil || score < best!.score { best = (score, d) }
+                }
+                d += step
+            }
+            guard let spot = best?.d else { continue }
+            let center = location(at: spot)
+            guard visible.contains(center) else { continue }
+            let a = location(at: spot - reach), b = location(at: spot + reach)
+            let length = hypot(b.x - a.x, b.y - a.y)
+            guard length > 0 else { continue }
+            let ux = (b.x - a.x) / length, uy = (b.y - a.y) / length   // direction of travel
+            let tip = MKMapPoint(x: center.x + ux * half, y: center.y + uy * half)
+            let left = MKMapPoint(x: center.x - ux * half - uy * half, y: center.y - uy * half + ux * half)
+            let right = MKMapPoint(x: center.x - ux * half + uy * half, y: center.y - uy * half - ux * half)
+            chevrons.move(to: point(for: left))
+            chevrons.addLine(to: point(for: tip))
+            chevrons.addLine(to: point(for: right))
+        }
+        guard !chevrons.isEmpty else { return }
+
+        context.saveGState()
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        // A thin darker edge keeps the white chevron readable on the orange line.
+        context.addPath(chevrons)
+        context.setStrokeColor(NSColor.trackOrange.blended(withFraction: 0.45, of: .black)!.withAlphaComponent(0.7).cgColor)
+        context.setLineWidth(4.8 / zoomScale)
+        context.strokePath()
+        context.addPath(chevrons)
+        context.setStrokeColor(NSColor.white.cgColor)
+        context.setLineWidth(2.8 / zoomScale)
+        context.strokePath()
+        context.restoreGState()
+    }
+}
+
 /// A colored dot with an optional name label, drawn with plain views.
 /// MKMarkerAnnotationView sizes itself from balloon artwork that does not load
 /// in the Quick Look sandbox: its frame stays 0×0 and nothing is drawn.
@@ -259,6 +352,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         let showProfile = profile.count > 1
         if showProfile {
             profileView.profile = profile
+            profileView.markers = gpx.profileMarkers()
             profileHeight.constant = 118
             profileBar.isHidden = false
             profileView.onHover = { [weak self] point in
@@ -332,7 +426,9 @@ extension PreviewViewController: MKMapViewDelegate {
             return MKTileOverlayRenderer(tileOverlay: tiles)
         }
         guard let polyline = overlay as? MKPolyline else { return MKOverlayRenderer(overlay: overlay) }
-        let renderer = MKPolylineRenderer(polyline: polyline)
+        let renderer = polyline is CasingPolyline
+            ? MKPolylineRenderer(polyline: polyline)
+            : DirectionalPolylineRenderer(polyline: polyline)
         renderer.lineJoin = .round
         renderer.lineCap = .round
         if polyline is CasingPolyline {
