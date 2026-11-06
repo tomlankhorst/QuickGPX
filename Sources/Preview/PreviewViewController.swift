@@ -44,6 +44,46 @@ private final class EndpointAnnotation: MKPointAnnotation {
 /// Marks the position hovered in the elevation profile.
 private final class HoverDotAnnotation: MKPointAnnotation {}
 
+/// A colored dot with an optional name label, drawn with plain views.
+/// MKMarkerAnnotationView sizes itself from balloon artwork that does not load
+/// in the Quick Look sandbox: its frame stays 0×0 and nothing is drawn.
+private final class DotAnnotationView: MKAnnotationView {
+    private let dot = NSView()
+    private let label = NSTextField(labelWithString: "")
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        dot.wantsLayer = true
+        dot.layer?.borderColor = NSColor.white.cgColor
+        dot.layer?.borderWidth = 2.5
+        addSubview(dot)
+        label.font = .systemFont(ofSize: 11, weight: .semibold)
+        label.textColor = .black
+        label.drawsBackground = true
+        label.backgroundColor = NSColor.white.withAlphaComponent(0.8)
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func configure(color: NSColor, diameter: CGFloat, text: String?) {
+        let name = text ?? ""
+        label.stringValue = name
+        label.isHidden = name.isEmpty
+        label.sizeToFit()
+        let gap: CGFloat = 4
+        let width = diameter + (label.isHidden ? 0 : gap + label.frame.width)
+        let height = max(diameter, label.isHidden ? 0 : label.frame.height)
+        frame = NSRect(x: 0, y: 0, width: width, height: height)
+        dot.frame = NSRect(x: 0, y: (height - diameter) / 2, width: diameter, height: diameter)
+        dot.layer?.cornerRadius = diameter / 2
+        dot.layer?.backgroundColor = color.cgColor
+        label.frame.origin = NSPoint(x: diameter + gap, y: (height - label.frame.height) / 2)
+        // MapKit centers the view on the coordinate: shift it so that the dot is on the coordinate.
+        centerOffset = CGPoint(x: (width - diameter) / 2, y: 0)
+    }
+}
+
 @objc(PreviewViewController)
 final class PreviewViewController: NSViewController, QLPreviewingController {
 
@@ -321,18 +361,14 @@ extension PreviewViewController: MKMapViewDelegate {
             view.isEnabled = false
             return view
         }
-        let identifier = "marker"
-        let view = (mapView.dequeueReusableAnnotationView(withIdentifier: identifier) as? MKMarkerAnnotationView)
-            ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+        let identifier = "dot"
+        let view = (mapView.dequeueReusableAnnotationView(withIdentifier: identifier) as? DotAnnotationView)
+            ?? DotAnnotationView(annotation: annotation, reuseIdentifier: identifier)
         view.annotation = annotation
-        view.canShowCallout = true
         if let endpoint = annotation as? EndpointAnnotation {
-            view.markerTintColor = endpoint.isStart ? .systemGreen : .systemRed
-            view.glyphImage = NSImage(systemSymbolName: endpoint.isStart ? "figure.walk" : "flag.checkered",
-                                      accessibilityDescription: nil)
+            view.configure(color: endpoint.isStart ? .systemGreen : .systemRed, diameter: 14, text: nil)
         } else {
-            view.markerTintColor = .systemIndigo
-            view.glyphImage = NSImage(systemSymbolName: "mappin", accessibilityDescription: nil)
+            view.configure(color: .systemIndigo, diameter: 12, text: annotation.title ?? nil)
         }
         return view
     }
